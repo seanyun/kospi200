@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KOSPI 200 — AI 추천</title>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+    }
+
+    /* ── Left pane (table) ── */
+    .left-pane {
+      flex: 1;
+      min-width: 0;
+      padding: 32px 24px;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .title-group h1 { font-size: 1.6rem; font-weight: 700; color: #f0f6fc; }
+    .title-group p  { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
+
+    .ai-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.7rem; padding: 3px 10px;
+      border-radius: 12px; background: #1a2332;
+      border: 1px solid #388bfd44; color: #58a6ff;
+      margin-top: 6px;
+    }
+    .ai-badge svg { width: 11px; height: 11px; }
+
+    .controls { display: flex; align-items: center; gap: 12px; }
+
+    .badge {
+      font-size: 0.75rem; padding: 3px 10px;
+      border-radius: 12px; background: #161b22;
+      border: 1px solid #30363d; color: #8b949e;
+    }
+
+    button#refresh {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 18px; background: #238636; color: #fff;
+      border: none; border-radius: 6px; font-size: 0.875rem;
+      font-weight: 600; cursor: pointer; transition: background 0.2s;
+    }
+    button#refresh:hover    { background: #2ea043; }
+    button#refresh:disabled { background: #1a3e20; color: #4a7c59; cursor: not-allowed; }
+    button#refresh svg      { width: 16px; height: 16px; }
+    button#refresh.loading svg { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .status-bar { font-size: 0.75rem; color: #8b949e; margin-bottom: 16px; height: 18px; }
+    .status-bar span.error { color: #f85149; }
+
+    .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid #30363d; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+
+    thead tr { background: #161b22; border-bottom: 1px solid #30363d; }
+
+    th {
+      padding: 12px 16px; text-align: right; color: #8b949e;
+      font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.04em; white-space: nowrap;
+    }
+    th:first-child, th.th-company { text-align: left; }
+
+    tbody tr {
+      border-bottom: 1px solid #21262d;
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+    tbody tr:last-child  { border-bottom: none; }
+    tbody tr:hover       { background: #161b22; }
+    tbody tr.active-row  { background: #1c2128; border-left: 3px solid #58a6ff; }
+
+    td { padding: 14px 16px; text-align: right; white-space: nowrap; vertical-align: top; }
+    td:first-child, td.td-company { text-align: left; }
+    td.td-reason { text-align: left; white-space: normal; min-width: 200px; max-width: 320px; }
+
+    .rank { color: #8b949e; font-size: 0.8rem; font-weight: 600; min-width: 24px; }
+
+    .company-cell  { display: flex; flex-direction: column; gap: 2px; }
+    .company-name-kr { font-weight: 600; color: #f0f6fc; font-size: 0.9rem; }
+    .company-name-en { font-size: 0.75rem; color: #8b949e; }
+
+    .sector-badge {
+      display: inline-block; font-size: 0.68rem; padding: 1px 7px;
+      border-radius: 10px; background: #21262d; color: #8b949e;
+      border: 1px solid #30363d; margin-top: 3px;
+    }
+
+    .ticker     { color: #58a6ff; font-family: monospace; font-size: 0.8rem; }
+    .price      { font-weight: 700; color: #f0f6fc; font-size: 0.95rem; }
+    .up         { color: #3fb950; }
+    .down       { color: #f85149; }
+    .flat       { color: #8b949e; }
+    .market-cap { color: #c9d1d9; }
+
+    .reason-text {
+      font-size: 0.78rem; color: #8b949e; line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      white-space: normal;
+    }
+    .reason-hint {
+      font-size: 0.68rem; color: #388bfd; margin-top: 3px;
+    }
+
+    .skeleton {
+      background: linear-gradient(90deg, #21262d 25%, #30363d 50%, #21262d 75%);
+      background-size: 400% 100%;
+      animation: shimmer 1.2s infinite;
+      border-radius: 4px; height: 14px; display: inline-block;
+    }
+    @keyframes shimmer { to { background-position: -400% 0; } }
+    .skeleton-row td { padding: 18px 16px; }
+
+    /* ── Right pane (chart + reason) ── */
+    .right-pane {
+      width: 0;
+      overflow: hidden;
+      background: #0d1117;
+      border-left: 1px solid #30363d;
+      display: flex;
+      flex-direction: column;
+      transition: width 0.3s ease;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+
+    .right-pane.open { width: 500px; }
+
+    .panel-header {
+      padding: 20px 20px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .panel-header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-company { font-size: 1rem; font-weight: 700; color: #f0f6fc; }
+    .panel-meta    { font-size: 0.75rem; color: #8b949e; }
+
+    .panel-price-row {
+      display: flex; align-items: baseline; gap: 10px; margin-top: 6px;
+    }
+    .panel-price  { font-size: 1.5rem; font-weight: 700; color: #f0f6fc; }
+    .panel-change { font-size: 0.875rem; font-weight: 600; }
+
+    .panel-reason-box {
+      margin: 14px 20px 0;
+      padding: 12px 14px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      border-left: 3px solid #388bfd;
+      flex-shrink: 0;
+    }
+    .panel-reason-label {
+      font-size: 0.65rem; color: #58a6ff; text-transform: uppercase;
+      letter-spacing: 0.08em; margin-bottom: 6px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .panel-reason-label svg { width: 11px; height: 11px; }
+    .panel-reason-text {
+      font-size: 0.8rem; color: #c9d1d9; line-height: 1.6; white-space: normal;
+    }
+
+    .btn-close {
+      background: none; border: none; cursor: pointer;
+      color: #8b949e; padding: 4px; border-radius: 4px;
+      display: flex; align-items: center;
+    }
+    .btn-close:hover { color: #f0f6fc; background: #21262d; }
+    .btn-close svg { width: 18px; height: 18px; }
+
+    .panel-label {
+      font-size: 0.7rem; color: #8b949e; text-transform: uppercase;
+      letter-spacing: 0.06em; padding: 14px 20px 6px;
+      flex-shrink: 0;
+    }
+
+    #chart-container {
+      flex: 1;
+      min-height: 0;
+      padding: 0 12px 12px;
+    }
+
+    .chart-loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: #8b949e; font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- Left: table -->
+  <div class="left-pane">
+    <div class="container">
+      <header>
+        <div class="title-group">
+          <h1>KOSPI 200 — AI 추천 Top 10</h1>
+          <p>Claude AI가 분석한 KOSPI 200 내 유망 종목 (단기 투자 기준)</p>
+          <span class="ai-badge">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-9h2v5h-2zm0-3h2v2h-2z"/></svg>
+            모멘텀 · 규모 · 안정성 알고리즘 (by Claude)
+          </span>
+        </div>
+        <div class="controls">
+          <span class="badge" id="market-badge">KRX · KRW</span>
+          <button id="refresh" onclick="fetchRecommendations()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            AI 추천 갱신
+          </button>
+        </div>
+      </header>
+
+      <div class="status-bar" id="status">AI 분석 중…</div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px">#</th>
+              <th class="th-company">종목</th>
+              <th>티커</th>
+              <th>현재가 (KRW)</th>
+              <th>등락</th>
+              <th>등락률</th>
+              <th>시가총액</th>
+              <th class="th-company">AI 추천 근거</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <!-- skeleton rows rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: chart panel -->
+  <div class="right-pane" id="right-pane">
+    <div class="panel-header">
+      <div class="panel-header-top">
+        <div>
+          <div class="panel-company" id="panel-company">—</div>
+          <div class="panel-meta" id="panel-meta">—</div>
+        </div>
+        <button class="btn-close" onclick="closePanel()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="panel-price-row">
+        <span class="panel-price" id="panel-price">—</span>
+        <span class="panel-change" id="panel-change"></span>
+      </div>
+    </div>
+
+    <!-- AI Reason box -->
+    <div class="panel-reason-box" id="panel-reason-box" style="display:none">
+      <div class="panel-reason-label">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-9h2v5h-2zm0-3h2v2h-2z"/></svg>
+        Claude AI 추천 근거
+      </div>
+      <div class="panel-reason-text" id="panel-reason-text"></div>
+    </div>
+
+    <div class="panel-label">일별 차트 · 최근 30 거래일</div>
+    <div id="chart-container">
+      <div class="chart-loading" id="chart-loading">종목을 클릭하면 차트가 표시됩니다</div>
+    </div>
+  </div>
+
+  <script>
+    let stocksData = [];
+    let chartInstance = null;
+    let activeRow = null;
+
+    function fmt(num, decimals = 0) {
+      if (num == null) return '—';
+      return num.toLocaleString('ko-KR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    }
+
+    function fmtMarketCap(val) {
+      if (val == null) return '—';
+      if (val >= 1e12) return (val / 1e12).toFixed(1) + '조';
+      if (val >= 1e8)  return (val / 1e8).toFixed(0) + '억';
+      return val.toLocaleString('ko-KR');
+    }
+
+    function dirClass(val) {
+      if (val == null) return 'flat';
+      return val > 0 ? 'up' : val < 0 ? 'down' : 'flat';
+    }
+
+    function dirSign(val) {
+      return val > 0 ? '+' : '';
+    }
+
+    async function fetchRecommendations() {
+      const btn = document.getElementById('refresh');
+      const status = document.getElementById('status');
+      btn.disabled = true;
+      btn.classList.add('loading');
+      status.innerHTML = 'Claude AI가 KOSPI 200 종목을 분석 중입니다…';
+      closePanel();
+      renderSkeleton();
+      try {
+        const res = await fetch('/api/recommend');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        stocksData = data.stocks;
+        renderTable(data.stocks);
+        const ts = new Date(data.updatedAt).toLocaleTimeString('ko-KR');
+        status.innerHTML = `AI 추천 갱신: <strong>${ts}</strong> · KOSPI 200 내 ${data.stocks.length}개 종목`;
+      } catch (err) {
+        document.getElementById('tbody').innerHTML = '';
+        status.innerHTML = `<span class="error">오류: ${err.message}</span>`;
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    }
+
+    function renderTable(stocks) {
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = stocks.map((s, i) => {
+        const cls = dirClass(s.changePct);
+        const sign = dirSign(s.changePct);
+        const reason = s.reason || '';
+        return `
+        <tr data-idx="${i}" onclick="openChart(${i})">
+          <td><span class="rank">${s.rank || i + 1}</span></td>
+          <td class="td-company">
+            <div class="company-cell">
+              <span class="company-name-kr">${s.name}</span>
+              <span class="company-name-en">${s.nameEn}</span>
+              <span class="sector-badge">${s.sector}</span>
+            </div>
+          </td>
+          <td><span class="ticker">${s.ticker.replace('.KS', '')}</span></td>
+          <td><span class="price">${fmt(s.price)}</span></td>
+          <td><span class="${cls}">${sign}${fmt(s.change, 0)}</span></td>
+          <td><span class="${cls}">${sign}${fmt(s.changePct, 2)}%</span></td>
+          <td><span class="market-cap">₩${fmtMarketCap(s.marketCap)}</span></td>
+          <td class="td-reason">
+            <div class="reason-text">${reason}</div>
+            <div class="reason-hint">↗ 클릭하여 차트 보기</div>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function openChart(idx) {
+      const s = stocksData[idx];
+      if (!s) return;
+
+      // Highlight row
+      document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('active-row'));
+      const row = document.querySelector(`tbody tr[data-idx="${idx}"]`);
+      if (row) row.classList.add('active-row');
+      activeRow = idx;
+
+      // Open panel
+      const panel = document.getElementById('right-pane');
+      panel.classList.add('open');
+
+      // Fill header
+      document.getElementById('panel-company').textContent = `${s.name} (${s.nameEn})`;
+      document.getElementById('panel-meta').textContent = `${s.ticker} · ${s.sector}`;
+      document.getElementById('panel-price').textContent = s.price ? `₩${fmt(s.price)}` : '—';
+      const chg = document.getElementById('panel-change');
+      const cls = dirClass(s.changePct);
+      chg.className = `panel-change ${cls}`;
+      chg.textContent = s.changePct != null
+        ? `${dirSign(s.changePct)}${fmt(s.change, 0)} (${dirSign(s.changePct)}${fmt(s.changePct, 2)}%)`
+        : '';
+
+      // Fill AI reason
+      const reasonBox = document.getElementById('panel-reason-box');
+      const reasonText = document.getElementById('panel-reason-text');
+      if (s.reason) {
+        reasonText.textContent = s.reason;
+        reasonBox.style.display = 'block';
+      } else {
+        reasonBox.style.display = 'none';
+      }
+
+      // Show loading
+      const container = document.getElementById('chart-container');
+      container.innerHTML = '<div class="chart-loading">차트 불러오는 중…</div>';
+      chartInstance = null;
+
+      try {
+        const res = await fetch(`/api/history/${encodeURIComponent(s.ticker)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        renderChart(container, data.bars);
+      } catch (err) {
+        container.innerHTML = `<div class="chart-loading" style="color:#f85149">오류: ${err.message}</div>`;
+      }
+    }
+
+    function renderChart(container, bars) {
+      container.innerHTML = '';
+
+      const chart = LightweightCharts.createChart(container, {
+        width:  container.clientWidth || 460,
+        height: 300,
+        layout: {
+          background: { color: '#0d1117' },
+          textColor:  '#8b949e',
+        },
+        grid: {
+          vertLines: { color: '#21262d' },
+          horzLines: { color: '#21262d' },
+        },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        rightPriceScale: {
+          borderColor: '#30363d',
+          scaleMargins: { top: 0.1, bottom: 0.1 },
+        },
+        timeScale: {
+          borderColor: '#30363d',
+          timeVisible: true,
+          fixLeftEdge: true,
+          fixRightEdge: true,
+        },
+      });
+
+      const series = chart.addCandlestickSeries({
+        upColor:         '#3fb950',
+        downColor:       '#f85149',
+        borderUpColor:   '#3fb950',
+        borderDownColor: '#f85149',
+        wickUpColor:     '#3fb950',
+        wickDownColor:   '#f85149',
+      });
+
+      series.setData(bars);
+      chart.timeScale().fitContent();
+      chartInstance = chart;
+
+      const ro = new ResizeObserver(() => {
+        chart.applyOptions({ width: container.clientWidth || 460 });
+      });
+      ro.observe(container);
+    }
+
+    function closePanel() {
+      document.getElementById('right-pane').classList.remove('open');
+      document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('active-row'));
+      activeRow = null;
+    }
+
+    function renderSkeleton() {
+      const tbody = document.getElementById('tbody');
+      const row = `<tr class="skeleton-row">
+        <td><div class="skeleton" style="width:20px"></div></td>
+        <td><div class="skeleton" style="width:160px"></div></td>
+        <td><div class="skeleton" style="width:70px"></div></td>
+        <td><div class="skeleton" style="width:90px"></div></td>
+        <td><div class="skeleton" style="width:60px"></div></td>
+        <td><div class="skeleton" style="width:55px"></div></td>
+        <td><div class="skeleton" style="width:80px"></div></td>
+        <td><div class="skeleton" style="width:220px"></div></td>
+      </tr>`;
+      tbody.innerHTML = row.repeat(10);
+    }
+
+    renderSkeleton();
+    fetchRecommendations();
+  </script>
+</body>
+</html>
