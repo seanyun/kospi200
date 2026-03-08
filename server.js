@@ -41,17 +41,29 @@ app.get('/api/stocks', (req, res) => {
   });
 });
 
-// History endpoint
+// History endpoint (with 1-hour cache per ticker)
+const historyCache = {}; // { [ticker]: { data, fetchedAt } }
+const HISTORY_TTL = 60 * 60 * 1000; // 1 hour
+
 app.get('/api/history/:ticker', (req, res) => {
   const ticker = req.params.ticker;
+  const cached = historyCache[ticker];
+  if (cached && (Date.now() - cached.fetchedAt < HISTORY_TTL)) {
+    return res.json(cached.data);
+  }
   exec(`${PYTHON} "${HISTORY_SCRIPT}" "${ticker}"`, { timeout: 30000 }, (err, stdout, stderr) => {
     if (err) {
       console.error('History script error:', stderr || err.message);
+      // Return stale cache if available
+      if (cached) return res.json(cached.data);
       return res.status(500).json({ error: 'Failed to fetch history', detail: err.message });
     }
     try {
-      res.json(JSON.parse(stdout.trim()));
+      const data = JSON.parse(stdout.trim());
+      historyCache[ticker] = { data, fetchedAt: Date.now() };
+      res.json(data);
     } catch (e) {
+      if (cached) return res.json(cached.data);
       res.status(500).json({ error: 'Invalid data from script' });
     }
   });
