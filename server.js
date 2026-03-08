@@ -142,24 +142,47 @@ function scoreAndPick(candidates, topN = 10) {
   });
 }
 
-// ── Recommendation endpoint ───────────────────────────────────────────────────
+// ── Recommendation endpoint (with 5-min cache) ───────────────────────────────
+
+let cache = null; // { stocks, updatedAt, fetchedAt }
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function fetchFresh(callback) {
+  exec(`${PYTHON} "${CANDIDATES_SCRIPT}"`, { timeout: 90000 }, (err, stdout, stderr) => {
+    if (err) return callback(new Error(stderr || err.message));
+    try {
+      const candidates = JSON.parse(stdout.trim()).candidates;
+      const stocks = scoreAndPick(candidates, 10);
+      const now = new Date().toISOString();
+      cache = { stocks, updatedAt: now, fetchedAt: Date.now() };
+      callback(null, cache);
+    } catch (e) {
+      callback(e);
+    }
+  });
+}
 
 app.get('/api/recommend', (req, res) => {
-  exec(`${PYTHON} "${CANDIDATES_SCRIPT}"`, { timeout: 60000 }, (err, stdout, stderr) => {
+  const cacheValid = cache && (Date.now() - cache.fetchedAt < CACHE_TTL);
+
+  if (cacheValid) {
+    return res.json({ stocks: cache.stocks, updatedAt: cache.updatedAt, cached: true });
+  }
+
+  // If stale cache exists, return it immediately and refresh in background
+  if (cache) {
+    res.json({ stocks: cache.stocks, updatedAt: cache.updatedAt, cached: true });
+    fetchFresh((err) => { if (err) console.error('Background refresh failed:', err.message); });
+    return;
+  }
+
+  // No cache: must wait for fresh data
+  fetchFresh((err, result) => {
     if (err) {
-      console.error('Candidates script error:', stderr || err.message);
-      return res.status(500).json({ error: 'Failed to fetch candidate data', detail: err.message });
+      console.error('Candidates script error:', err.message);
+      return res.status(500).json({ error: 'Failed to fetch candidate data' });
     }
-
-    let candidates;
-    try {
-      candidates = JSON.parse(stdout.trim()).candidates;
-    } catch (e) {
-      return res.status(500).json({ error: 'Invalid data from candidates script' });
-    }
-
-    const stocks = scoreAndPick(candidates, 10);
-    res.json({ stocks, updatedAt: new Date().toISOString() });
+    res.json({ stocks: result.stocks, updatedAt: result.updatedAt });
   });
 });
 
